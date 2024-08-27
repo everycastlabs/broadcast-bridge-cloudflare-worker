@@ -1,0 +1,23 @@
+name = "broadcast-bridge-cloudflare-workers"
+main = "src/index.js"
+compatibility_date = "2024-06-10"
+account_id = "bde8664f107f5934b0b7e17cd68e6265"
+
+#routes = [
+#  { pattern = "example.com/*", zone_id = "xxxxx" }
+#]
+
+#rules = [
+#  { type = "ESModule", globs = ["dist/*.js"] },
+#  { type = "Text", globs = ["dist/*.md"], fallthrough = true }
+#]
+
+[[d1_databases]]
+binding = "DB" # i.e. available in your Worker on env.DB
+database_name = "broadcast-bridge"
+database_id = "6c9f1009-2a28-4476-b298-cf891a5bf2be"
+
+[vars]
+APP_ENV = "local"
+APP_HOSTNAME = "localhost"
+FIREBASE_PROJECT_ID = "broadcaster-staging-51787"
