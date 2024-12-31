@@ -4,9 +4,20 @@ import { getConnInfo } from 'hono/cloudflare-workers'
 import { bearerAuth } from 'hono/bearer-auth'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
+import { setCookie } from 'hono/cookie';
 import { WorkOS } from '@workos-inc/node';
 import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose';
+// import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
+// import { getFirestore, Timestamp, FieldValue, Filter } from 'firebase-admin/firestore';
+
 import { createCustomToken, pemToArrayBuffer } from './utils';
+// import serviceAccount from '../firebase-private-key.json';
+
+// Initialize firebase
+// initializeApp({
+//   credential: cert(serviceAccount)
+// });
+// const db = getFirestore();
 
 const app = new Hono();
 
@@ -58,6 +69,8 @@ app.get("/auth-redirect", (c) => {
 
   const { redirect_uri, provider } = c.req.query()
 
+  console.log('redirect_uri', redirect_uri, provider)
+
   let providerForWorkOS = 'authkit';
 
   switch (provider) {
@@ -81,6 +94,41 @@ app.get("/auth-redirect", (c) => {
   // Redirect the user to the AuthKit sign-in page
   return c.redirect(authorizationUrl);
 })
+
+app.get('/callback', async (c) => {
+  const workos = c.get('workos');
+  const { WORKOS_CLIENT_ID } = env(c);
+
+  // The authorization code returned by AuthKit
+  const { code } = c.req.query();
+
+  if (!code) {
+    return c.json({ err: 'No code provided' }, 400);
+  }
+
+  try {
+    const { user, sealedSession } = await workos.userManagement.authenticateWithCode({
+      code,
+      clientId: WORKOS_CLIENT_ID,
+    });
+
+    // Store the session in a cookie
+    setCookie(c, 'wos-session', sealedSession, {
+      path: '/',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+    });
+
+    // Use the information in `user` for further business logic.
+    console.log('returning user and session', user, sealedSession);
+
+    // Redirect the user to the homepage
+    return c.redirect('http://localhost:4000');
+  } catch (error) {
+    return c.redirect('/login');
+  }
+});
 
 app.post("/token", async (c) => {
   const req = c.req;
@@ -145,5 +193,62 @@ app.post("/token", async (c) => {
     throw new HTTPException(500, { message: 'Error' })
   }
 });
+
+app.get('/auth/get-customer', async (c) => {
+  const db = c.env.DB;
+  const workos = c.get('workos');
+  const jwtPayload = c.get('jwtPayload');
+  if (!jwtPayload?.sub) {
+    return c.json({ err: 'No auth data' }, 400);
+  }
+  console.log('jwtPayload', jwtPayload);
+
+  const userId = jwtPayload.sub;
+  // const stripe = require('stripe')(c.env.STRIPE_SECRET_KEY);
+
+	try {
+		const orgMemberships = await workos.userManagement.listOrganizationMemberships({
+			userId: userId,
+		});
+		const orgId = orgMemberships.data[0].organizationId; // each user is in only one org
+
+    // TODO change this to KV
+    const fbUserIdQuery = await db.prepare(
+      `SELECT firebase_user_id FROM workos_user_lookup WHERE workos_user_id = '${userId}'`
+    ).run();
+    if (!fbUserIdQuery.success) {
+      throw new Error('User ID not found');
+    }
+    const fbUserId = fbUserIdQuery.results[0].firebase_user_id;
+
+    // Get document data from Firestore
+    // const userRef = db.collection('users').doc(fbUserId);
+    // const userDoc = await userRef.get();
+    // if (!userDoc.exists) {
+    //   console.log('No such document!');
+    // } else {
+    //   console.log('Document data:', userDoc.data());
+    // }
+
+		// const customers = await stripe.customers.search({
+		// 	query: `metadata[\'organizationId\']:\'${orgId}\'`,
+		// });
+
+		// if (!customers.data?.length) {
+		// 	throw new Error('Customer ID not found');
+		// }
+		// // we expect only one result
+		// if (customers.data.length > 1) {
+		// 	throw new Error('Too many user ID matches. Expected: 1');
+		// }
+
+		// return c.json({ id: customers.data[0].id });
+    return c.json({ payload: jwtPayload, workOSOrgId: orgId, fbUserId });
+	} catch (err) {
+		return c.json({ err: `Error getting customer: ${err.message}` }, 500);
+	}
+});
+
+// TODO cron job to consolidate D1 into KV
 
 export default app;

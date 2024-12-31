@@ -1,3 +1,9 @@
 .wrangler
 node_modules
 .dev.vars
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.\*
+firebase-private-key.json
