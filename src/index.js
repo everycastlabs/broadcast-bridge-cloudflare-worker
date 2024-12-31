@@ -23,14 +23,15 @@ app.use(
   bearerAuth({
     verifyToken: async (token, c) => {
       const { WORKOS_CLIENT_ID } = env(c);
+      const workos = c.get('workos');
       const JWKS = createRemoteJWKSet(
-        new URL(c.workos.userManagement.getJwksUrl(WORKOS_CLIENT_ID)),
+        new URL(workos.userManagement.getJwksUrl(WORKOS_CLIENT_ID)),
       );
       const res = await jwtVerify(token, JWKS);
       if (!res) {
         return false
       }
-      c.set(jwtPayload, res.payload);
+      c.set('jwtPayload', res.payload);
       return true
     },
   })
