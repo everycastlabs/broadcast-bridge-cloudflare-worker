@@ -11,7 +11,7 @@ import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose';
 import * as Firestore from 'fireworkers';
 
 import { createCustomToken } from './utils';
-import { firebaseOrgCreate } from './schemas';
+import { firebaseOrgCreate, firebaseUserCreate } from './schemas';
 
 async function createDb(SERVICE_ACCOUNT_JSON) {
   return Firestore.init(JSON.parse(SERVICE_ACCOUNT_JSON));
@@ -80,13 +80,58 @@ app.post('/firebase/create-workos-org', zValidator('json', firebaseOrgCreate), a
     // go and add the firebase orgId and the workos orgId to the d1 database
     const db = c.env.DB; // DB is the binding name for your D1 database
     await db
-      .prepare(`INSERT INTO workos_organisation_lookup (workos_organisation_id, firestore_org_id) VALUES (?, ?)`)
+      .prepare(`INSERT INTO workos_organisation_lookup (workos_organisation_id, firestore_org_id) VALUES (?, ?) ON CONFLICT(workos_organisation_id) DO UPDATE SET firebase_org_id = '${firebaseOrgId}'`)
       .bind(workosOrg.id, firebaseOrgId)
       .run();
 
     return c.json({ success: true }, 201);
   } catch (err) {
 		return c.json({ err: `Error creating organisation: ${err.message}` }, 500);
+  }
+});
+
+// The user is created by authkit-react, but we need an endpoint to create the firestore doc
+// Gets called by the WorkOS webhook on the user.created event.
+// app.post('/firebase/create-user', zValidator('json', firebaseUserCreate), async (c) => { // FIXME parse correctly in zod
+app.post('/create-firebase-user-doc', async (c) => {
+  const workos = c.get('workos');
+  const { SERVICE_ACCOUNT_JSON, WORKOS_WEBHOOK_SECRET } = env(c);
+
+  const firestoreDb = await createDb(SERVICE_ACCOUNT_JSON);
+
+  try {
+    const payload = await c.req.json();
+
+		// verify signature and construct event
+		const sigHeader = c.req.header('workos-signature');
+		const verified = await workos.webhooks.constructEvent({
+			payload: payload,
+			sigHeader: sigHeader,
+			secret: WORKOS_WEBHOOK_SECRET,
+    });
+    const user = verified.data;
+
+    //go and make the user in the firebase project
+    await Firestore.set(
+      firestoreDb,
+      `users/${user.id}`,
+      {
+        apiKey: null, //this currently gets inserted by a firebase
+        enabled: true,
+      },
+      { merge: true },
+    );
+
+    const db = c.env.DB; // DB is the binding name for your D1 database
+    await db
+      .prepare(`INSERT INTO workos_user_lookup (workos_user_id, firebase_user_id) VALUES (?, ?) ON CONFLICT(workos_user_id) DO UPDATE SET firebase_user_id = '${user.id}'`)
+      .bind(user.id, user.id)
+      .run();
+
+    return c.json({ success: true }, 201);
+  } catch (err) {
+    console.error(err.message);
+		return c.json({ err: `Error creating user: ${err.message}` }, 500);
   }
 });
 
