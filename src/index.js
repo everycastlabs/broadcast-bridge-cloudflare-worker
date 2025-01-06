@@ -5,19 +5,17 @@ import { bearerAuth } from 'hono/bearer-auth'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { setCookie } from 'hono/cookie';
+import { zValidator } from '@hono/zod-validator'
 import { WorkOS } from '@workos-inc/node';
 import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose';
-// import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
-// import { getFirestore, Timestamp, FieldValue, Filter } from 'firebase-admin/firestore';
+import * as Firestore from 'fireworkers';
 
-import { createCustomToken, pemToArrayBuffer } from './utils';
-// import serviceAccount from '../firebase-private-key.json';
+import { createCustomToken } from './utils';
+import { firebaseOrgCreate } from './schemas';
 
-// Initialize firebase
-// initializeApp({
-//   credential: cert(serviceAccount)
-// });
-// const db = getFirestore();
+async function createDb(SERVICE_ACCOUNT_JSON) {
+  return Firestore.init(JSON.parse(SERVICE_ACCOUNT_JSON));
+}
 
 const app = new Hono();
 
@@ -40,28 +38,126 @@ app.use(
       );
       const res = await jwtVerify(token, JWKS);
       if (!res) {
-        return false
+        return false;
       }
       c.set('jwtPayload', res.payload);
-      return true
+      return true;
     },
   })
 )
 
-app.post("/create-account", async (c) => {
-  const data = await c.req.json();
+app.use(
+  '/firebase/*',
+  bearerAuth({
+    verifyToken: async (token, c) => {
+      const FIREBASE_SHARED_SECRET = env(c);
+      if (token !== FIREBASE_SHARED_SECRET) {
+        return false;
+      }
+      return true;
+    },
+  })
+);
 
+app.post('/firebase/create-workos-org', zValidator('json', firebaseOrgCreate), async (c) => {
+  const { orgName, firebaseOrgId, createdByUserId, role } = c.req.valid('json');
   const workos = c.get('workos');
 
-  // const user = await workos.userManagement.createUser({
-  //   email: 'marcelina@example.com',
-  //   password: 'i8uv6g34kd490s',
-  //   firstName: 'Marcelina',
-  //   lastName: 'Davis',
-  // });
+  // TODO need to make sure we've been given a valid firebase org id, org name, user who created it
 
+  //go and create the org in WorkOS
+  try {
+    const workosOrg = await workos.organizations.createOrganization({
+      name: orgName,
+    });
 
-})
+    await workos.userManagement.createOrganizationMembership({
+      organizationId: workosOrg.id,
+      userId: createdByUserId,
+      roleSlug: role,
+    });
+
+    // go and add the firebase orgId and the workos orgId to the d1 database
+    const db = c.env.DB; // DB is the binding name for your D1 database
+    await db
+      .prepare(`INSERT INTO workos_organisation_lookup (workos_organisation_id, firestore_org_id) VALUES (?, ?)`)
+      .bind(workosOrg.id, firebaseOrgId)
+      .run();
+
+    return c.json({ success: true }, 201);
+  } catch (err) {
+		return c.json({ err: `Error creating organisation: ${err.message}` }, 500);
+  }
+});
+
+// TODO we create the user with authkit-react, but we need an endpoint to create the firestore doc
+app.post("/create-account", async (c) => {
+  const data = await c.req.json();
+  const workos = c.get('workos');
+  const info = getConnInfo(c);
+  const { WORKOS_CLIENT_ID, SERVICE_ACCOUNT_JSON } = env(c);
+
+  //make sure we have a password
+  if (!data.password) {
+    throw new HTTPException(400, 'Password is required')
+  }
+
+  if (!data.email) {
+    throw new HTTPException(400, 'Email is required')
+  }
+
+  const firestoreDb = createDb(SERVICE_ACCOUNT_JSON)
+
+  try {
+    const userData = await workos.userManagement.createUser({
+      email: data.email,
+      password: data.password,
+    });
+
+    //go and make the user in the firebase project
+    await Firestore.set(
+      firestoreDb,
+      `users/${userData.id}`,
+      {
+        apiKey: null, //this currently gets inserted by a firebase
+        enabled: true
+      },
+      { merge: true }
+    );
+
+    const db = c.env.DB; // DB is the binding name for your D1 database
+    await db
+      .prepare(`INSERT INTO workos_user_lookup SET workos_user_id = ?, firebase_user_id = ?`)
+      .bind(user.id, user.id)
+      .run();
+
+    const { user, accessToken, refreshToken } = await workos.userManagement.authenticateWithPassword({
+      clientId: WORKOS_CLIENT_ID,
+      email: data.email,
+      password: data.password,
+      ipAddress: info.remote.address,
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    const decoded = decodeJwt(accessToken);
+
+    const idToken = await createCustomToken(JSON.parse(SERVICE_ACCOUNT_JSON), userData.id, {
+      // orgId: orgData.results[0].firestore_org_id, //we dont have a org yet
+      roles: [decoded.role]
+    })
+
+    return c.json({
+      access_token: accessToken,
+      id_token: accessToken,
+      refresh_token: refreshToken,
+      firebase_token: idToken,
+    });
+
+  } catch (err) {
+    console.error(err.message);
+		return c.json({ err: `Error creating user: ${err.message}` }, 500);
+  }
+});
 
 app.get("/auth-redirect", (c) => {
   const workos = c.get('workos');
@@ -194,6 +290,7 @@ app.post("/token", async (c) => {
   }
 });
 
+// FIXME we shouldn't need this because firestore reading will be done on FE
 app.get('/auth/get-customer', async (c) => {
   const db = c.env.DB;
   const workos = c.get('workos');
