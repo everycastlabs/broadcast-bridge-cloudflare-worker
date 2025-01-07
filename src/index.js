@@ -250,7 +250,6 @@ app.post("/token", async (c) => {
   const db = c.env.DB; // DB is the binding name for your D1 database
 
   try {
-
     const { code, error, refresh_token } = await req.parseBody()
 
     if (error) {
@@ -273,7 +272,7 @@ app.post("/token", async (c) => {
         })
       }
 
-      const  {accessToken, organizationId, user, refreshToken } = await workos.userManagement.authenticateWithCode({
+      const  { accessToken, organizationId, user, refreshToken } = await workos.userManagement.authenticateWithCode({
         clientId: WORKOS_CLIENT_ID,
         code: code,
         ipAddress: info.remote.address,
@@ -283,14 +282,19 @@ app.post("/token", async (c) => {
       const decoded = decodeJwt(accessToken);
 
       // go and look up the organizationId in the db
-      const orgData = await db.prepare(`SELECT * FROM workos_organisation_lookup WHERE workos_organisation_id = ?`).bind(organizationId).run()
+      let orgId;
+      if (organizationId) {
+        const orgData = await db
+          .prepare(`SELECT * FROM workos_organisation_lookup WHERE workos_organisation_id = ?`)
+          .bind(organizationId)
+          .run();
+        orgId = orgData.results[0].firestore_org_id;
+      }
 
       const userData = await db.prepare(`SELECT * FROM workos_user_lookup WHERE workos_user_id = ?`).bind(user.id).run()
 
-      console.log(orgData, userData)
-
       const idToken = await createCustomToken(JSON.parse(SERVICE_ACCOUNT_JSON), userData.results[0].firebase_user_id, {
-        orgId: orgData.results[0].firestore_org_id,
+        orgId,
         roles: [decoded.role]
       })
 
