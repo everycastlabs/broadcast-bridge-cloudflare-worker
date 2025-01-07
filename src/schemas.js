@@ -8,6 +8,18 @@ export const firebaseOrgCreate = z.object({
 });
 
 export const firebaseUserCreate = z.object({
-  email: z.string().email({ message: 'Invalid email address' }),
-  password: z.string().min(4, { message: 'Password must be at least 4 characters long' }),
+  id: z.string(),
+  data: z.object({
+    id: z.string(),
+    email: z.string().email({ message: 'Invalid email address' }),
+    object: z.string(),
+    last_name: z.string(),
+    created_at: z.string(),
+    first_name: z.string(),
+    updated_at: z.string(),
+    email_verified: z.boolean(),
+    profile_picture_url: z.string().nullable(),
+  }),
+  event: z.string(),
+  created_at: z.string(),
 });

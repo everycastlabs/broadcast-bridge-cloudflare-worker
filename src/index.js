@@ -92,15 +92,14 @@ app.post('/firebase/create-workos-org', zValidator('json', firebaseOrgCreate), a
 
 // The user is created by authkit-react, but we need an endpoint to create the firestore doc
 // Gets called by the WorkOS webhook on the user.created event.
-// app.post('/firebase/create-user', zValidator('json', firebaseUserCreate), async (c) => { // FIXME parse correctly in zod
-app.post('/create-firebase-user-doc', async (c) => {
+app.post('/create-firebase-user-doc', zValidator('json', firebaseUserCreate), async (c) => {
   const workos = c.get('workos');
   const { SERVICE_ACCOUNT_JSON, WORKOS_WEBHOOK_SECRET } = env(c);
 
   const firestoreDb = await createDb(SERVICE_ACCOUNT_JSON);
 
   try {
-    const payload = await c.req.json();
+    const payload = c.req.valid('json')
 
 		// verify signature and construct event
 		const sigHeader = c.req.header('workos-signature');
@@ -129,75 +128,6 @@ app.post('/create-firebase-user-doc', async (c) => {
       .run();
 
     return c.json({ success: true }, 201);
-  } catch (err) {
-    console.error(err.message);
-		return c.json({ err: `Error creating user: ${err.message}` }, 500);
-  }
-});
-
-// TODO we create the user with authkit-react, but we need an endpoint to create the firestore doc
-app.post("/create-account", async (c) => {
-  const data = await c.req.json();
-  const workos = c.get('workos');
-  const info = getConnInfo(c);
-  const { WORKOS_CLIENT_ID, SERVICE_ACCOUNT_JSON } = env(c);
-
-  //make sure we have a password
-  if (!data.password) {
-    throw new HTTPException(400, 'Password is required')
-  }
-
-  if (!data.email) {
-    throw new HTTPException(400, 'Email is required')
-  }
-
-  const firestoreDb = createDb(SERVICE_ACCOUNT_JSON)
-
-  try {
-    const userData = await workos.userManagement.createUser({
-      email: data.email,
-      password: data.password,
-    });
-
-    //go and make the user in the firebase project
-    await Firestore.set(
-      firestoreDb,
-      `users/${userData.id}`,
-      {
-        apiKey: null, //this currently gets inserted by a firebase
-        enabled: true
-      },
-      { merge: true }
-    );
-
-    const db = c.env.DB; // DB is the binding name for your D1 database
-    await db
-      .prepare(`INSERT INTO workos_user_lookup SET workos_user_id = ?, firebase_user_id = ?`)
-      .bind(user.id, user.id)
-      .run();
-
-    const { user, accessToken, refreshToken } = await workos.userManagement.authenticateWithPassword({
-      clientId: WORKOS_CLIENT_ID,
-      email: data.email,
-      password: data.password,
-      ipAddress: info.remote.address,
-      userAgent: c.req.header('User-Agent'),
-    });
-
-    const decoded = decodeJwt(accessToken);
-
-    const idToken = await createCustomToken(JSON.parse(SERVICE_ACCOUNT_JSON), userData.id, {
-      // orgId: orgData.results[0].firestore_org_id, //we dont have a org yet
-      roles: [decoded.role]
-    })
-
-    return c.json({
-      access_token: accessToken,
-      id_token: accessToken,
-      refresh_token: refreshToken,
-      firebase_token: idToken,
-    });
-
   } catch (err) {
     console.error(err.message);
 		return c.json({ err: `Error creating user: ${err.message}` }, 500);
@@ -333,62 +263,6 @@ app.post("/token", async (c) => {
     console.error(err)
     throw new HTTPException(500, { message: 'Error' })
   }
-});
-
-// FIXME we shouldn't need this because firestore reading will be done on FE
-app.get('/auth/get-customer', async (c) => {
-  const db = c.env.DB;
-  const workos = c.get('workos');
-  const jwtPayload = c.get('jwtPayload');
-  if (!jwtPayload?.sub) {
-    return c.json({ err: 'No auth data' }, 400);
-  }
-  console.log('jwtPayload', jwtPayload);
-
-  const userId = jwtPayload.sub;
-  // const stripe = require('stripe')(c.env.STRIPE_SECRET_KEY);
-
-	try {
-		const orgMemberships = await workos.userManagement.listOrganizationMemberships({
-			userId: userId,
-		});
-		const orgId = orgMemberships.data[0].organizationId; // each user is in only one org
-
-    // TODO change this to KV
-    const fbUserIdQuery = await db.prepare(
-      `SELECT firebase_user_id FROM workos_user_lookup WHERE workos_user_id = '${userId}'`
-    ).run();
-    if (!fbUserIdQuery.success) {
-      throw new Error('User ID not found');
-    }
-    const fbUserId = fbUserIdQuery.results[0].firebase_user_id;
-
-    // Get document data from Firestore
-    // const userRef = db.collection('users').doc(fbUserId);
-    // const userDoc = await userRef.get();
-    // if (!userDoc.exists) {
-    //   console.log('No such document!');
-    // } else {
-    //   console.log('Document data:', userDoc.data());
-    // }
-
-		// const customers = await stripe.customers.search({
-		// 	query: `metadata[\'organizationId\']:\'${orgId}\'`,
-		// });
-
-		// if (!customers.data?.length) {
-		// 	throw new Error('Customer ID not found');
-		// }
-		// // we expect only one result
-		// if (customers.data.length > 1) {
-		// 	throw new Error('Too many user ID matches. Expected: 1');
-		// }
-
-		// return c.json({ id: customers.data[0].id });
-    return c.json({ payload: jwtPayload, workOSOrgId: orgId, fbUserId });
-	} catch (err) {
-		return c.json({ err: `Error getting customer: ${err.message}` }, 500);
-	}
 });
 
 // TODO cron job to consolidate D1 into KV
