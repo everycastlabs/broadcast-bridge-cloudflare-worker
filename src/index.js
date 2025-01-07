@@ -135,6 +135,7 @@ app.post('/create-firebase-user-doc', zValidator('json', firebaseUserCreate), as
 });
 
 app.get('/auth/user-org', async (c) => {
+  const db = c.env.DB;
   const workos = c.get('workos');
   const { sub: userId } = c.get('jwtPayload');
 
@@ -144,11 +145,32 @@ app.get('/auth/user-org', async (c) => {
     });
 
     if (!orgMemberships?.data?.length) {
-      return c.json({ orgId: null });
+      return c.json({});
+    }
+    const wosOrgId = orgMemberships.data[0].organizationId; // each user is in only one org
+
+    // get firebase user ID and org ID from D1
+    let fbOrgId = null;
+    const orgData = await db
+      .prepare(`SELECT * FROM workos_organisation_lookup WHERE workos_organisation_id = ?`)
+      .bind(wosOrgId)
+      .run();
+
+    if (orgData.success && orgData.results.length) {
+      fbOrgId = orgData.results[0].firestore_org_id;
     }
 
-    const orgId = orgMemberships.data[0].organizationId; // each user is in only one org
-    return c.json({ orgId });
+    let fbUserId = null;
+    const userData = await db
+      .prepare(`SELECT * FROM workos_user_lookup WHERE workos_user_id = ?`)
+      .bind(userId)
+      .run();
+
+    if (userData.success && userData.results.length) {
+      fbUserId = userData.results[0].firebase_user_id;
+    }
+
+    return c.json({ orgId: fbOrgId, uid: fbUserId, wosOrgId });
   } catch (err) {
     return c.json({ err: `Error getting user org: ${err.message}` }, 500);
   }
