@@ -134,6 +134,26 @@ app.post('/create-firebase-user-doc', zValidator('json', firebaseUserCreate), as
   }
 });
 
+app.get('/auth/user-org', async (c) => {
+  const workos = c.get('workos');
+  const { sub: userId } = c.get('jwtPayload');
+
+  try {
+    const orgMemberships = await workos.userManagement.listOrganizationMemberships({
+      userId: userId,
+    });
+
+    if (!orgMemberships?.data?.length) {
+      return c.json({ orgId: null });
+    }
+
+    const orgId = orgMemberships.data[0].organizationId; // each user is in only one org
+    return c.json({ orgId });
+  } catch (err) {
+    return c.json({ err: `Error getting user org: ${err.message}` }, 500);
+  }
+});
+
 app.get("/auth-redirect", (c) => {
   const workos = c.get('workos');
   const { WORKOS_CLIENT_ID } = env(c);
