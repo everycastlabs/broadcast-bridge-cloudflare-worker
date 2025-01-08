@@ -51,7 +51,7 @@ app.use(
   '/firebase/*',
   bearerAuth({
     verifyToken: async (token, c) => {
-      const FIREBASE_SHARED_SECRET = env(c);
+      const { FIREBASE_SHARED_SECRET } = env(c);
       if (token !== FIREBASE_SHARED_SECRET) {
         return false;
       }
@@ -71,6 +71,7 @@ app.post('/firebase/create-workos-org', validator('json', async (value, c) => {
 }), async (c) => {
   const { orgName, firebaseOrgId, createdByUserId } = c.req.valid('json');
   const workos = c.get('workos');
+  const { SERVICE_ACCOUNT_JSON } = env(c);
 
   // TODO need to make sure we've been given a valid firebase org id, org name, user who created it
 
@@ -93,7 +94,12 @@ app.post('/firebase/create-workos-org', validator('json', async (value, c) => {
       .bind(workosOrg.id, firebaseOrgId)
       .run();
 
-    return c.json({ success: true }, 201);
+    const firebase_token = await createCustomToken(JSON.parse(SERVICE_ACCOUNT_JSON), createdByUserId, {
+      firebaseOrgId,
+      roles: ['member'],
+    });
+
+    return c.json({ success: true, firebase_token }, 201);
   } catch (err) {
 		return c.json({ err: `Error creating organisation: ${err.message}` }, 500);
   }
@@ -145,6 +151,7 @@ app.post('/create-firebase-user-doc', zValidator('json', firebaseUserCreate), as
 
 app.get('/auth/user-org', async (c) => {
   const db = c.env.DB;
+  const { SERVICE_ACCOUNT_JSON } = env(c);
   const workos = c.get('workos');
   const { sub: userId } = c.get('jwtPayload');
 
@@ -171,6 +178,7 @@ app.get('/auth/user-org', async (c) => {
     }
 
     let fbUserId = null;
+    let firebase_token = null;
     const userData = await db
       .prepare(`SELECT * FROM workos_user_lookup WHERE workos_user_id = ?`)
       .bind(userId)
@@ -178,9 +186,14 @@ app.get('/auth/user-org', async (c) => {
 
     if (userData.success && userData.results.length) {
       fbUserId = userData.results[0].firebase_user_id;
+
+      firebase_token = await createCustomToken(JSON.parse(SERVICE_ACCOUNT_JSON), fbUserId, {
+        fbOrgId,
+        roles: ['member'],
+      });
     }
 
-    return c.json({ orgId: fbOrgId, uid: fbUserId, wosOrgId });
+    return c.json({ orgId: fbOrgId, uid: fbUserId, wosOrgId, firebase_token });
   } catch (err) {
     return c.json({ err: `Error getting user org: ${err.message}` }, 500);
   }
