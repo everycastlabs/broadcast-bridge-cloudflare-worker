@@ -3,8 +3,8 @@ import { z } from 'zod'
 export const firebaseOrgCreate = z.object({
   orgName: z.string(),
   firebaseOrgId: z.string(),
-  role: z.string(),
   createdByUserId: z.string(),
+  // role: z.string().optional(),
 });
 
 export const firebaseUserCreate = z.object({

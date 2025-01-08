@@ -6,6 +6,7 @@ import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { setCookie } from 'hono/cookie';
 import { zValidator } from '@hono/zod-validator'
+import { validator } from 'hono/validator';
 import { WorkOS } from '@workos-inc/node';
 import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose';
 import * as Firestore from 'fireworkers';
@@ -59,8 +60,16 @@ app.use(
   })
 );
 
-app.post('/firebase/create-workos-org', zValidator('json', firebaseOrgCreate), async (c) => {
-  const { orgName, firebaseOrgId, createdByUserId, role } = c.req.valid('json');
+app.post('/firebase/create-workos-org', validator('json', async (value, c) => {
+  const body = await c.req.json();
+
+  const parsed = firebaseOrgCreate.safeParse(body);
+  if (!parsed.success) {
+    return c.json('Invalid org data!', 401);
+  }
+  return parsed.data;
+}), async (c) => {
+  const { orgName, firebaseOrgId, createdByUserId } = c.req.valid('json');
   const workos = c.get('workos');
 
   // TODO need to make sure we've been given a valid firebase org id, org name, user who created it
@@ -74,13 +83,13 @@ app.post('/firebase/create-workos-org', zValidator('json', firebaseOrgCreate), a
     await workos.userManagement.createOrganizationMembership({
       organizationId: workosOrg.id,
       userId: createdByUserId,
-      roleSlug: role,
+      // roleSlug: role, // defaults to member
     });
 
     // go and add the firebase orgId and the workos orgId to the d1 database
     const db = c.env.DB; // DB is the binding name for your D1 database
     await db
-      .prepare(`INSERT INTO workos_organisation_lookup (workos_organisation_id, firestore_org_id) VALUES (?, ?) ON CONFLICT(workos_organisation_id) DO UPDATE SET firebase_org_id = '${firebaseOrgId}'`)
+      .prepare(`INSERT INTO workos_organisation_lookup (workos_organisation_id, firestore_org_id) VALUES (?, ?) ON CONFLICT(workos_organisation_id) DO UPDATE SET firestore_org_id = '${firebaseOrgId}'`)
       .bind(workosOrg.id, firebaseOrgId)
       .run();
 
@@ -144,6 +153,7 @@ app.get('/auth/user-org', async (c) => {
       userId: userId,
     });
 
+    // FIXME we should be able to return uid even if there is no orgID
     if (!orgMemberships?.data?.length) {
       return c.json({});
     }
@@ -272,7 +282,7 @@ app.post("/token", async (c) => {
         })
       }
 
-      const  { accessToken, organizationId, user, refreshToken } = await workos.userManagement.authenticateWithCode({
+      const { accessToken, organizationId, user, refreshToken } = await workos.userManagement.authenticateWithCode({
         clientId: WORKOS_CLIENT_ID,
         code: code,
         ipAddress: info.remote.address,
