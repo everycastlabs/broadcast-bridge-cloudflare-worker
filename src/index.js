@@ -156,29 +156,25 @@ app.get('/auth/user-org', async (c) => {
   const { sub: userId } = c.get('jwtPayload');
 
   try {
+    let fbUserId, fbOrgId, firebase_token, wosOrgId;
     const orgMemberships = await workos.userManagement.listOrganizationMemberships({
       userId: userId,
     });
 
-    // FIXME we should be able to return uid even if there is no orgID
-    if (!orgMemberships?.data?.length) {
-      return c.json({});
-    }
-    const wosOrgId = orgMemberships.data[0].organizationId; // each user is in only one org
+    if (orgMemberships?.data?.length) {
+      wosOrgId = orgMemberships.data[0].organizationId; // each user is in only one org
 
-    // get firebase user ID and org ID from D1
-    let fbOrgId = null;
-    const orgData = await db
-      .prepare(`SELECT * FROM workos_organisation_lookup WHERE workos_organisation_id = ?`)
-      .bind(wosOrgId)
-      .run();
+      // get firebase user ID and org ID from D1
+      const orgData = await db
+        .prepare(`SELECT * FROM workos_organisation_lookup WHERE workos_organisation_id = ?`)
+        .bind(wosOrgId)
+        .run();
 
-    if (orgData.success && orgData.results.length) {
-      fbOrgId = orgData.results[0].firestore_org_id;
+      if (orgData.success && orgData.results.length) {
+        fbOrgId = orgData.results[0].firestore_org_id;
+      }
     }
 
-    let fbUserId = null;
-    let firebase_token = null;
     const userData = await db
       .prepare(`SELECT * FROM workos_user_lookup WHERE workos_user_id = ?`)
       .bind(userId)
