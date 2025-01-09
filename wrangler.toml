@@ -3,22 +3,37 @@ main = "src/index.js"
 compatibility_date = "2024-12-10"
 account_id = "bde8664f107f5934b0b7e17cd68e6265"
 
-#routes = [
-#  { pattern = "example.com/*", zone_id = "xxxxx" }
-#]
-
-#rules = [
-#  { type = "ESModule", globs = ["dist/*.js"] },
-#  { type = "Text", globs = ["dist/*.md"], fallthrough = true }
-#]
+workers_dev = false
+routes = [
+  { pattern = "api.broadcastbridge.app", custom_domain = true }
+]
 
 [[d1_databases]]
+binding = "DB" # i.e. available in your Worker on env.DB
+database_name = "broadcast-bridge-production"
+database_id = "07997fa2-9ad4-40a3-8477-3552c91cbdd8"
+
+[vars]
+ENVIRONMENT = "production"
+APP_ENV = "production"
+APP_HOSTNAME = "broadcastbridge.app"
+FIREBASE_PROJECT_ID = "broadcaster-629f3"
+WORKOS_CLIENT_ID = "client_01HNFG9R6RDSRHKYB6702HBR5Y"
+
+[env.staging]
+workers_dev = false
+routes = [
+  { pattern = "api.broadcastbridge.dev", custom_domain = true }
+]
+
+[[env.staging.d1_databases]]
 binding = "DB" # i.e. available in your Worker on env.DB
 database_name = "broadcast-bridge"
 database_id = "6c9f1009-2a28-4476-b298-cf891a5bf2be"
 
-[vars]
-APP_ENV = "local"
-APP_HOSTNAME = "localhost"
+[env.staging.vars]
+ENVIRONMENT = "staging"
+APP_ENV = "staging"
+APP_HOSTNAME = "broadcastbridge.dev"
 FIREBASE_PROJECT_ID = "broadcaster-staging-51787"
 WORKOS_CLIENT_ID = "client_01HNFG9QQEQ4K94WFVYQRZ2BMY"
