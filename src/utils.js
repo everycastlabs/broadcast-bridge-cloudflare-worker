@@ -57,7 +57,6 @@ export async function createCustomToken(serviceAccount, uid, claims) {
   const signature = new Uint8Array(signatureArrayBuffer);
   let base64Signature = btoa(String.fromCharCode(...signature));
   base64Signature = base64Signature.replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  console.log('got here??')
   // Return the final JWT
   return `${dataToSign}.${base64Signature}`;
 }
