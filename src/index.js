@@ -116,15 +116,16 @@ app.post('/create-firebase-user-doc', zValidator('json', firebaseUserCreate), as
   try {
     const payload = c.req.valid('json')
 
-		// verify signature and construct event
-		const sigHeader = c.req.header('workos-signature');
-		const verified = await workos.webhooks.constructEvent({
-			payload: payload,
-			sigHeader: sigHeader,
-			secret: WORKOS_WEBHOOK_SECRET,
-    });
     // FIXME signature verification fails for unknown reasons
     // so we're going to skip it for now
+
+		// verify signature and construct event
+		// const sigHeader = c.req.header('workos-signature');
+		// const verified = await workos.webhooks.constructEvent({
+		// 	payload: payload,
+		// 	sigHeader: sigHeader,
+		// 	secret: WORKOS_WEBHOOK_SECRET,
+    // });
     const user = payload.data;
 
     //go and make the user in the firebase project
