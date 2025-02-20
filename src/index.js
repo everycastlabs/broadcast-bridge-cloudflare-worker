@@ -194,7 +194,26 @@ app.get('/auth/user-org', async (c) => {
 
     return c.json({ orgId: fbOrgId, uid: fbUserId, wosOrgId, firebase_token });
   } catch (err) {
+    console.log(err);
     return c.json({ err: `Error getting user org: ${err.message}` }, 500);
+  }
+});
+
+app.get('/auth/mfa-enroll-user', async (c) => {
+  const workos = c.get('workos');
+  const { sub: userId, act } = c.get('jwtPayload');
+
+  try {
+    const res = await workos.userManagement.enrollAuthFactor({
+      userId,
+      type: 'totp',
+      totpIssuer: 'Broadcast Bridge',
+      totpUser: act?.sub, // the user email
+    });
+
+    return c.json(res);
+  } catch (err) {
+    return c.json({ err: `Error enrolling user to MFA: ${err.message}` }, 500);
   }
 });
 
